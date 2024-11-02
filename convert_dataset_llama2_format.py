@@ -1,13 +1,10 @@
-import requests
+from datasets import load_dataset
 import csv
 import os
+import glob
 
-# Define the URL to fetch the data from the dataset
-url = "https://datasets-server.huggingface.co/rows?dataset=jellyChiru%2FSParC&config=default&split=train"
-
-# Fetch the JSON data from the URL
-response = requests.get(url)
-data = response.json()
+# Load the dataset
+dataset = load_dataset("jellyChiru/SParC")
 
 # Path to the database directory containing metadata folders
 database_dir = "database"
@@ -16,25 +13,32 @@ database_dir = "database"
 output_csv = "formatted_sparc.csv"
 
 # Open the CSV file and write headers
-with open(output_csv, mode="w", newline="") as csvfile:
+with open(output_csv, mode="w", newline="", encoding='utf-8') as csvfile:
     writer = csv.writer(csvfile)
     writer.writerow(["text"])  # Header for single "text" column
 
-    # Iterate through each row in the JSON data
-    for row_data in data["rows"]:
-        database_id = row_data["row"]["database_id"]
-        question = row_data["row"]["question"]
-        query = row_data["row"]["query"]
+    # Process the 'train' split of the dataset
+    for row in dataset['train']:
+        database_id = row["database_id"]
+        question = row["question"]
+        query = row["query"]
         
-        # Path to the schema.sql file for the current database_id
-        schema_file_path = os.path.join(database_dir, database_id, "schema.sql")
-
-        # Extract metadata from schema.sql file
-        if os.path.exists(schema_file_path):
-            with open(schema_file_path, "r") as schema_file:
-                metadata = schema_file.read()
+        # Search for any .sql file in the current database_id folder
+        sql_files = glob.glob(os.path.join(database_dir, database_id, "*.sql"))
+        
+        # Use the first .sql file found as the metadata source
+        metadata = ""
+        if sql_files:
+            try:
+                with open(sql_files[0], "r", encoding='utf-8') as sql_file:
+                    # Read lines, excluding those starting with 'INSERT'
+                    metadata = ''.join(line for line in sql_file if not (line.strip().upper().startswith("INSERT") or line.strip().upper().startswith("--")))
+            except UnicodeDecodeError:
+                print(f"Warning: Could not decode file {sql_files[0]}. Trying a different encoding.")
+                with open(sql_files[0], "r", encoding='latin-1') as sql_file:
+                    metadata = ''.join(line for line in sql_file if not (line.strip().upper().startswith("INSERT") or line.strip().upper().startswith("--")))
         else:
-            # print(f"Warning: Schema file for {database_id} not found.")
+            print(f"Warning: No .sql file found for {database_id}.")
             metadata = ""
 
         # Construct the text entry
